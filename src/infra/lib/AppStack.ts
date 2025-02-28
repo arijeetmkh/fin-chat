@@ -6,6 +6,7 @@ import * as path from 'path';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
 import * as targets from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 
 
 export class AppStack extends cdk.Stack {
@@ -143,16 +144,27 @@ export class AppStack extends cdk.Stack {
 
     const albListener = finChatAlb.addListener('Listener', {
       port: 80,
-      protocol: elbv2.ApplicationProtocol.HTTP
+      protocol: elbv2.ApplicationProtocol.HTTP,
+      defaultAction: elbv2.ListenerAction.redirect({
+        protocol: 'HTTPS',
+        port: '443',
+        permanent: true
+      })
+    });
+
+    const albTLSListener = finChatAlb.addListener('TLSListener', {
+      port: 443,
+      protocol: elbv2.ApplicationProtocol.HTTPS,
+      certificates: [acm.Certificate.fromCertificateArn(this, 'Certificate', 'arn:aws:acm:ca-central-1:766932390969:certificate/a34b31d7-7834-4bce-ae00-9b6a8f61b266')]
     });
 
     appService.registerLoadBalancerTargets({
       containerName: 'appContainer',
       containerPort: 3000,
       newTargetGroupId: 'fin-chat-target',
-      listener: ecs.ListenerConfig.applicationListener(albListener, {
+      listener: ecs.ListenerConfig.applicationListener(albTLSListener, {
         protocol: elbv2.ApplicationProtocol.HTTP,
-        port: 80,
+        port: 443,
         healthCheck: {
           path: '/',
           port: '3000',
@@ -169,16 +181,16 @@ export class AppStack extends cdk.Stack {
       vpc, internetFacing: true
     });
     const nlbListener = finChatNlb.addListener('Listener', {
-      port: 80,
+      port: 443,
       protocol: elbv2.Protocol.TCP
     });
     
     nlbListener.addTargets('fin-chat-alb-target', {
-      port: 80,
-      targets: [new targets.AlbListenerTarget(albListener)],
+      port: 443,
+      targets: [new targets.AlbListenerTarget(albTLSListener)],
       healthCheck: {
-        port: '80',
-        protocol: elbv2.Protocol.HTTP,
+        port: '443',
+        protocol: elbv2.Protocol.HTTPS,
         enabled: true
       }
     });
